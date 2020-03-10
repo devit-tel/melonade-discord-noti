@@ -304,7 +304,7 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 				jsonByteError, _ := json.MarshalIndent(falseWorkflowPayload.Error, "", "    ")
 
 				embed := &discordgo.MessageEmbed{
-					Title:       "False task event had reported",
+					Title:       "False workflow event had reported",
 					URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
 					Description: "Click on the title to view the details",
 					Fields: []*discordgo.MessageEmbedField{{
@@ -329,7 +329,7 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 				jsonByteError, _ := json.MarshalIndent(falseTransactionPayload.Error, "", "    ")
 
 				embed := &discordgo.MessageEmbed{
-					Title:       "False task event had reported",
+					Title:       "False transaction event had reported",
 					URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
 					Description: "Click on the title to view the details",
 					Fields: []*discordgo.MessageEmbedField{{

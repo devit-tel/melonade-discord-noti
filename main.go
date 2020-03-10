@@ -25,20 +25,99 @@ type eventPayload struct {
 	Type          string `json:"type"`
 	IsError       bool   `json:"isError"`
 	Timestamp     int64  `json:"timestamp"`
-	Details       struct {
-		Type               string      `json:"type"`
+}
+
+type eventTransactionPayload struct {
+	Details struct {
 		TransactionID      string      `json:"transactionId"`
-		WorkflowID         string      `json:"workflowId"`
-		TaskID             string      `json:"taskId"`
 		Status             string      `json:"status"`
-		TaskName           string      `json:"taskName"`
+		Input              interface{} `json:"input"`
 		Output             interface{} `json:"output"`
-		IsSystem           bool        `json:"isSystem"`
+		CreateTime         int64       `json:"createTime"`
+		EndTime            int64       `json:"endTime"`
+		Tags               []string    `json:"tags"`
 		WorkflowDefinition struct {
 			Name string `json:"name"`
 			Rev  string `json:"rev"`
 		} `json:"workflowDefinition"`
 	} `json:"details"`
+}
+
+type eventWorkflowPayload struct {
+	Details struct {
+		TransactionID      string      `json:"transactionId"`
+		Type               string      `json:"type"`
+		WorkflowID         string      `json:"workflowId"`
+		Status             string      `json:"status"`
+		Retries            int         `json:"retries"`
+		Input              interface{} `json:"input"`
+		Output             interface{} `json:"output"`
+		CreateTime         int64       `json:"createTime"`
+		StartTime          int64       `json:"startTime"`
+		EndTime            int64       `json:"endTime"`
+		WorkflowDefinition struct {
+			Name string `json:"name"`
+			Rev  string `json:"rev"`
+		} `json:"workflowDefinition"`
+	} `json:"details"`
+}
+
+type eventTaskPayload struct {
+	Details struct {
+		Logs              []string    `json:"logs"`
+		TaskID            string      `json:"taskId"`
+		TaskName          string      `json:"taskName"`
+		TaskReferenceName string      `json:"taskReferenceName"`
+		WorkflowID        string      `json:"workflowId"`
+		TransactionID     string      `json:"transactionId"`
+		Type              string      `json:"type"`
+		Status            string      `json:"status"`
+		IsRetried         bool        `json:"isRetried"`
+		Input             interface{} `json:"input"`
+		Output            interface{} `json:"output"`
+		CreateTime        int64       `json:"createTime"`
+		StartTime         int64       `json:"startTime"`
+		EndTime           int64       `json:"endTime"`
+		Retries           int         `json:"retries"`
+		RetryDelay        int         `json:"retryDelay"`
+		AckTimeout        int         `json:"ackTimeout"`
+		Timeout           int         `json:"timeout"`
+	} `json:"details"`
+}
+
+type eventFalseTransactionPayload struct {
+	Error   string `json:"error"`
+	Details struct {
+		TransactionID string      `json:"transactionId"`
+		Status        string      `json:"status"`
+		Output        interface{} `json:"output"`
+	} `json:"details"`
+}
+
+type eventFalseWorkflowPayload struct {
+	Error   string `json:"error"`
+	Details struct {
+		TransactionID string      `json:"transactionId"`
+		WorkflowID    string      `json:"workflowId"`
+		Status        string      `json:"status"`
+		Output        interface{} `json:"output"`
+	} `json:"details"`
+}
+
+type eventFalseTaskPayload struct {
+	Error   string `json:"error"`
+	Details struct {
+		TransactionID string      `json:"transactionId"`
+		TaskID        string      `json:"taskId"`
+		Status        string      `json:"status"`
+		Output        interface{} `json:"output"`
+		IsSystem      bool        `json:"isSystem"`
+	} `json:"details"`
+}
+
+type eventFalseSystemPayload struct {
+	Error   string      `json:"error"`
+	Details interface{} `json:"details"`
 }
 
 func contains(s []string, e string) bool {
@@ -126,14 +205,10 @@ func main() {
 		URL: frontEndURL,
 	}
 
-	_, err = dg.ChannelMessageSendEmbed(notiChannel, embed)
-	if err != nil {
-		log.Print("Error while sending message", err)
-	}
-
 	// Await till the consumer has been set up
 	<-consumer.ready
 	log.Println("Sarama consumer up and running!...")
+	sendDiscordEmbed(embed)
 
 	sigterm := make(chan os.Signal, 1)
 	signal.Notify(sigterm, syscall.SIGINT, syscall.SIGTERM)
@@ -146,18 +221,18 @@ func main() {
 	cancel()
 	wg.Wait()
 
+	embed = &discordgo.MessageEmbed{
+		Title: "Byeeee",
+		Image: &discordgo.MessageEmbedImage{
+			URL: "https://i.imgur.com/LzfTUGd.gif",
+		},
+		URL: frontEndURL,
+	}
+	sendDiscordEmbed(embed)
+
 	if err = client.Close(); err != nil {
 		log.Panicf("Error closing client: %v", err)
 	}
-
-	// for {
-	// 	msg, err := c.ReadMessage(-1)
-	// 	if err != nil {
-	// 		fmt.Printf("Consumer error: %v (%v)\n", err, msg)
-	// 		continue
-	// 	}
-
-	// }
 }
 
 // Consumer represents a Sarama consumer group consumer
@@ -179,73 +254,198 @@ func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
 
 // ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
 func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-
 	// NOTE:
 	// Do not move the code below to a goroutine.
 	// The `ConsumeClaim` itself is called within a goroutine, see:
 	// https://github.com/Shopify/sarama/blob/master/consumer_group.go#L27-L29
 	for message := range claim.Messages() {
 		payload := eventPayload{}
-
-		if err := json.Unmarshal([]byte(message.Value), &payload); err != nil {
+		if err := json.Unmarshal(message.Value, &payload); err != nil {
 			log.Print("Bad payload", err)
 			continue
 		}
 
-		if payload.IsError == true && payload.Details.IsSystem != true {
-			jsonByte, _ := json.MarshalIndent(payload, "", "    ")
+		if payload.IsError == true {
+			if payload.Type == "TASK" {
+				falseTaskPayload := eventFalseTaskPayload{}
+				if err := json.Unmarshal(message.Value, &falseTaskPayload); err != nil {
+					log.Println("Bad falseTaskPayload", err)
+					continue
+				}
 
-			embed := &discordgo.MessageEmbed{
-				Title: "What the hell is happening",
-				Image: &discordgo.MessageEmbedImage{
-					URL: "https://i.kym-cdn.com/photos/images/facebook/000/918/810/a22.jpg",
-				},
-				URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
-				Description: fmt.Sprintf("Please have a look something not right in this transaction ```js\n%s```", string(jsonByte)),
-			}
+				if falseTaskPayload.Details.IsSystem != true {
+					jsonByteDetails, _ := json.MarshalIndent(falseTaskPayload.Details, "", "    ")
+					jsonByteError, _ := json.MarshalIndent(falseTaskPayload.Error, "", "    ")
 
-			_, err := dg.ChannelMessageSendEmbed(notiChannel, embed)
-			if err != nil {
-				log.Print("Error while sending message", err)
-			}
-		} else if payload.IsError == true && payload.Details.IsSystem != false {
-			// don't give a fuck
+					embed := &discordgo.MessageEmbed{
+						Title:       "False task event had reported",
+						URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
+						Description: "Click on the title to view the details",
+						Fields: []*discordgo.MessageEmbedField{{
+							Name:  "Transaction ID",
+							Value: fmt.Sprintf("```%s```", payload.TransactionID),
+						}, {
+							Name:  "Details",
+							Value: fmt.Sprintf("```json\n%s\n```", string(jsonByteDetails)),
+						}, {
+							Name:  "Error",
+							Value: fmt.Sprintf("```json\n%s\n```", string(jsonByteError)),
+						}},
+					}
+					sendDiscordEmbed(embed)
+				}
+			} else if payload.Type == "WORKFLOW" {
+				falseWorkflowPayload := eventFalseWorkflowPayload{}
+				if err := json.Unmarshal(message.Value, &falseWorkflowPayload); err != nil {
+					log.Println("Bad falseTaskPayload", err)
+					continue
+				}
+				jsonByteDetails, _ := json.MarshalIndent(falseWorkflowPayload.Details, "", "    ")
+				jsonByteError, _ := json.MarshalIndent(falseWorkflowPayload.Error, "", "    ")
 
-		} else if payload.Type == "TRANSACTION" && contains(interestedTransactionStatus, payload.Details.Status) {
-			jsonByte, _ := json.MarshalIndent(payload.Details.Output, "", "    ")
-			embed := &discordgo.MessageEmbed{
-				Title:       fmt.Sprintf("Transaction: %s", payload.Details.Status),
-				URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
-				Description: fmt.Sprintf("Transaction: %s had failed with Output  ```js\n%s```", payload.TransactionID, string(jsonByte)),
-			}
+				embed := &discordgo.MessageEmbed{
+					Title:       "False task event had reported",
+					URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
+					Description: "Click on the title to view the details",
+					Fields: []*discordgo.MessageEmbedField{{
+						Name:  "Transaction ID",
+						Value: fmt.Sprintf("```%s```", payload.TransactionID),
+					}, {
+						Name:  "Details",
+						Value: fmt.Sprintf("```json\n%s\n```", string(jsonByteDetails)),
+					}, {
+						Name:  "Error",
+						Value: fmt.Sprintf("```json\n%s\n```", string(jsonByteError)),
+					}},
+				}
+				sendDiscordEmbed(embed)
+			} else if payload.Type == "TRANSACTION" {
+				falseTransactionPayload := eventFalseTransactionPayload{}
+				if err := json.Unmarshal(message.Value, &falseTransactionPayload); err != nil {
+					log.Println("Bad falseTaskPayload", err)
+					continue
+				}
+				jsonByteDetails, _ := json.MarshalIndent(falseTransactionPayload.Details, "", "    ")
+				jsonByteError, _ := json.MarshalIndent(falseTransactionPayload.Error, "", "    ")
 
-			_, err := dg.ChannelMessageSendEmbed(notiChannel, embed)
-			if err != nil {
-				log.Print("Error while sending message", err)
+				embed := &discordgo.MessageEmbed{
+					Title:       "False task event had reported",
+					URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
+					Description: "Click on the title to view the details",
+					Fields: []*discordgo.MessageEmbedField{{
+						Name:  "Transaction ID",
+						Value: fmt.Sprintf("```%s```", payload.TransactionID),
+					}, {
+						Name:  "Details",
+						Value: fmt.Sprintf("```json\n%s\n```", string(jsonByteDetails)),
+					}, {
+						Name:  "Error",
+						Value: fmt.Sprintf("```json\n%s\n```", string(jsonByteError)),
+					}},
+				}
+				sendDiscordEmbed(embed)
+			} else if payload.Type == "SYSTEM" {
+				embed := &discordgo.MessageEmbed{
+					Title: "Something went wrong",
+					Fields: []*discordgo.MessageEmbedField{{
+						Name:  "Transaction ID",
+						Value: fmt.Sprintf("```%s```", payload.TransactionID),
+					}, {
+						Name:  "Details",
+						Value: fmt.Sprintf("```json\n%s\n```", string(message.Value)),
+					}},
+				}
+				sendDiscordEmbed(embed)
 			}
-		} else if payload.Type == "WORKFLOW" && contains(interestedWorkflowStatus, payload.Details.Status) {
-			jsonByte, _ := json.MarshalIndent(payload.Details.Output, "", "    ")
-			embed := &discordgo.MessageEmbed{
-				Title:       fmt.Sprintf("Workflow: %s", payload.Details.Status),
-				URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
-				Description: fmt.Sprintf("Workflow: %s | %s had failed with Output  ```js\n%s```", payload.Details.WorkflowDefinition.Name, payload.Details.WorkflowDefinition.Rev, string(jsonByte)),
-			}
+		} else {
+			if payload.Type == "TASK" {
+				taskEventPayload := eventTaskPayload{}
+				if err := json.Unmarshal(message.Value, &taskEventPayload); err != nil {
+					log.Println("Bad taskEventPayload", err)
+					continue
+				}
 
-			_, err := dg.ChannelMessageSendEmbed(notiChannel, embed)
-			if err != nil {
-				log.Print("Error while sending message", err)
-			}
-		} else if payload.Type == "TASK" && contains(interestedTaskStatus, payload.Details.Status) {
-			jsonByte, _ := json.MarshalIndent(payload.Details.Output, "", "    ")
-			embed := &discordgo.MessageEmbed{
-				Title:       fmt.Sprintf("Task: %s", payload.Details.Status),
-				URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
-				Description: fmt.Sprintf("Task: %s had failed with Output  ```js\n%s```", payload.Details.TaskName, string(jsonByte)),
-			}
+				if contains(interestedTaskStatus, taskEventPayload.Details.Status) {
+					jsonByteOutput, _ := json.MarshalIndent(taskEventPayload.Details.Output, "", "    ")
 
-			_, err := dg.ChannelMessageSendEmbed(notiChannel, embed)
-			if err != nil {
-				log.Print("Error while sending message", err)
+					embed := &discordgo.MessageEmbed{
+						Title:       fmt.Sprintf("Task: %s", taskEventPayload.Details.Status),
+						URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
+						Description: "Click on the title to view the details",
+						Fields: []*discordgo.MessageEmbedField{{
+							Name:  "Transaction ID",
+							Value: fmt.Sprintf("```%s```", payload.TransactionID),
+						}, {
+							Name:  "Task ID",
+							Value: fmt.Sprintf("```%s```", taskEventPayload.Details.TaskID),
+						}, {
+							Name:  "Task Name",
+							Value: fmt.Sprintf("```\n%s\n(%s)\n```", taskEventPayload.Details.TaskName, taskEventPayload.Details.TaskReferenceName),
+						}, {
+							Name:  "Output",
+							Value: fmt.Sprintf("```json\n%s\n```", string(jsonByteOutput)),
+						}},
+					}
+
+					sendDiscordEmbed(embed)
+				}
+			} else if payload.Type == "Workflow" {
+				workflowPayload := eventWorkflowPayload{}
+				if err := json.Unmarshal(message.Value, &workflowPayload); err != nil {
+					log.Println("Bad workflowPayload", err)
+					continue
+				}
+
+				if contains(interestedWorkflowStatus, workflowPayload.Details.Status) {
+					jsonByteOutput, _ := json.MarshalIndent(workflowPayload.Details.Output, "", "    ")
+					jsonByteWorkflow, _ := json.MarshalIndent(workflowPayload.Details.WorkflowDefinition, "", "    ")
+
+					embed := &discordgo.MessageEmbed{
+						Title:       fmt.Sprintf("Workflow: %s|%s", workflowPayload.Details.WorkflowDefinition.Name, workflowPayload.Details.WorkflowDefinition.Rev),
+						URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
+						Description: "Click on the title to view the details",
+						Fields: []*discordgo.MessageEmbedField{{
+							Name:  "Transaction ID",
+							Value: fmt.Sprintf("```%s```", payload.TransactionID),
+						}, {
+							Name:  "Output",
+							Value: fmt.Sprintf("```json\n%s\n```", string(jsonByteOutput)),
+						}, {
+							Name:  "Workflow Definition",
+							Value: fmt.Sprintf("```json\n%s\n```", string(jsonByteWorkflow)),
+						}},
+					}
+
+					sendDiscordEmbed(embed)
+				}
+			} else if payload.Type == "TRANSACTION" {
+				transactionPayload := eventTransactionPayload{}
+				if err := json.Unmarshal(message.Value, &transactionPayload); err != nil {
+					log.Println("Bad falseTaskPayload", err)
+					continue
+				}
+
+				if contains(interestedTransactionStatus, transactionPayload.Details.Status) {
+					jsonByteOutput, _ := json.MarshalIndent(transactionPayload.Details.Output, "", "    ")
+					jsonByteWorkflow, _ := json.MarshalIndent(transactionPayload.Details.WorkflowDefinition, "", "    ")
+
+					embed := &discordgo.MessageEmbed{
+						Title:       fmt.Sprintf("Transaction: %s", transactionPayload.Details.Status),
+						URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
+						Description: "Click on the title to view the details",
+						Fields: []*discordgo.MessageEmbedField{{
+							Name:  "Transaction ID",
+							Value: fmt.Sprintf("```%s```", payload.TransactionID),
+						}, {
+							Name:  "Output",
+							Value: fmt.Sprintf("```json\n%s\n```", string(jsonByteOutput)),
+						}, {
+							Name:  "Workflow Definition",
+							Value: fmt.Sprintf("```json\n%s\n```", string(jsonByteWorkflow)),
+						}},
+					}
+					sendDiscordEmbed(embed)
+				}
 			}
 		}
 
@@ -253,4 +453,12 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 	}
 
 	return nil
+}
+
+func sendDiscordEmbed(embed *discordgo.MessageEmbed) error {
+	_, err := dg.ChannelMessageSendEmbed(notiChannel, embed)
+	if err != nil {
+		log.Print("Error while sending message", err)
+	}
+	return err
 }

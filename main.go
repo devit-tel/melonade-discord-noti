@@ -277,6 +277,10 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 					jsonByteDetails, _ := json.MarshalIndent(falseTaskPayload.Details, "", "    ")
 					jsonByteError, _ := json.MarshalIndent(falseTaskPayload.Error, "", "    ")
 
+					if len(jsonByteDetails) > 1000 {
+						jsonByteDetails = append(jsonByteDetails[0:1000], '.', '.', '.')
+					}
+
 					embed := &discordgo.MessageEmbed{
 						Title:       "False task event had reported",
 						URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
@@ -303,6 +307,10 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 				jsonByteDetails, _ := json.MarshalIndent(falseWorkflowPayload.Details, "", "    ")
 				jsonByteError, _ := json.MarshalIndent(falseWorkflowPayload.Error, "", "    ")
 
+				if len(jsonByteDetails) > 1000 {
+					jsonByteDetails = append(jsonByteDetails[0:1000], '.', '.', '.')
+				}
+
 				embed := &discordgo.MessageEmbed{
 					Title:       "False workflow event had reported",
 					URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
@@ -327,6 +335,10 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 				}
 				jsonByteDetails, _ := json.MarshalIndent(falseTransactionPayload.Details, "", "    ")
 				jsonByteError, _ := json.MarshalIndent(falseTransactionPayload.Error, "", "    ")
+
+				if len(jsonByteDetails) > 1000 {
+					jsonByteDetails = append(jsonByteDetails[0:1000], '.', '.', '.')
+				}
 
 				embed := &discordgo.MessageEmbed{
 					Title:       "False transaction event had reported",
@@ -368,6 +380,10 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 				if contains(interestedTaskStatus, taskEventPayload.Details.Status) {
 					jsonByteOutput, _ := json.MarshalIndent(taskEventPayload.Details.Output, "", "    ")
 
+					if len(jsonByteOutput) > 1000 {
+						jsonByteOutput = append(jsonByteOutput[0:1000], '.', '.', '.')
+					}
+
 					embed := &discordgo.MessageEmbed{
 						Title:       fmt.Sprintf("Task: %s", taskEventPayload.Details.Status),
 						URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
@@ -400,6 +416,10 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 					jsonByteOutput, _ := json.MarshalIndent(workflowPayload.Details.Output, "", "    ")
 					jsonByteWorkflow, _ := json.MarshalIndent(workflowPayload.Details.WorkflowDefinition, "", "    ")
 
+					if len(jsonByteOutput) > 1000 {
+						jsonByteOutput = append(jsonByteOutput[0:1000], '.', '.', '.')
+					}
+
 					embed := &discordgo.MessageEmbed{
 						Title:       fmt.Sprintf("Workflow: %s|%s", workflowPayload.Details.WorkflowDefinition.Name, workflowPayload.Details.WorkflowDefinition.Rev),
 						URL:         fmt.Sprintf("%s/transaction/%s", frontEndURL, payload.TransactionID),
@@ -428,6 +448,10 @@ func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, clai
 				if contains(interestedTransactionStatus, transactionPayload.Details.Status) {
 					jsonByteOutput, _ := json.MarshalIndent(transactionPayload.Details.Output, "", "    ")
 					jsonByteWorkflow, _ := json.MarshalIndent(transactionPayload.Details.WorkflowDefinition, "", "    ")
+
+					if len(jsonByteOutput) > 1000 {
+						jsonByteOutput = append(jsonByteOutput[0:1000], '.', '.', '.')
+					}
 
 					embed := &discordgo.MessageEmbed{
 						Title:       fmt.Sprintf("Transaction: %s", transactionPayload.Details.Status),
